@@ -144,9 +144,9 @@ def test_generated_diff_accepted_by_git(tmp_path, path, before, after):
     root = tmp_path / "git"
     root.mkdir()
     subprocess.run(["git", "init", "-q", str(root)], check=True)
-    (root / path).write_text(before, encoding="utf-8")
+    (root / path).write_bytes(before.encode("utf-8"))
     patch = make_diff(path, before, after)
     if not patch:
         return
-    result = subprocess.run(["git", "-C", str(root), "apply", "--check", "-"], input=patch, text=True, capture_output=True)
-    assert result.returncode == 0, result.stderr + "\n" + patch
+    result = subprocess.run(["git", "-C", str(root), "apply", "--check", "-"], input=patch.encode("utf-8"), capture_output=True)
+    assert result.returncode == 0, result.stderr.decode("utf-8", errors="replace") + "\n" + patch

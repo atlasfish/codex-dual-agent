@@ -1,4 +1,5 @@
 import asyncio
+import base64
 from dataclasses import replace
 import json
 import os
@@ -18,7 +19,9 @@ from dual_agent.worker import run_job
 
 def python_command(source):
     if os.name == "nt":
-        return "& '" + sys.executable.replace("'", "''") + "' -c '" + source.replace("'", "''") + "'"
+        encoded = base64.b64encode(source.encode("utf-8")).decode("ascii")
+        runner = f"import base64; exec(base64.b64decode('{encoded}').decode('utf-8'))"
+        return "& '" + sys.executable.replace("'", "''") + "' -c \"" + runner + "\""
     return shlex.join([sys.executable, "-c", source])
 
 
@@ -33,6 +36,7 @@ def chat_final(text="done"):
 
 
 async def test_chat_full_tool_loop_keeps_vendor_fields(cfg, workspace):
+    cfg = replace(cfg, timeout_seconds=20)
     calls = []
     def respond(request):
         body = json.loads(request.content)
@@ -129,7 +133,7 @@ async def test_shell_cancel_kills_process(cfg, workspace):
     runtime = ToolRuntime(cfg, workspace)
     pid_path = workspace / 'pid.txt'
     task = asyncio.create_task(runtime.call('shell', json.dumps({'command': python_command('import os,time; open("pid.txt","w").write(str(os.getpid())); time.sleep(30)')})))
-    for _ in range(100):
+    for _ in range(400):
         if pid_path.exists() and pid_path.read_text():
             break
         await asyncio.sleep(.02)
@@ -256,7 +260,7 @@ def test_portable_snapshot_read(cfg,workspace):
 
 async def test_read_file_pagination_keeps_all_bytes(cfg,workspace):
     content='中文abc\\"\n'*1000
-    (workspace/'large.txt').write_text(content,encoding='utf-8')
+    (workspace/'large.txt').write_text(content,encoding='utf-8',newline='\n')
     runtime=ToolRuntime(replace(cfg,max_tool_output_bytes=1024,max_tool_calls=256),workspace)
     chunks=[];offset=0
     while True:
@@ -289,7 +293,7 @@ async def test_worker_real_loopback_tool_roundtrip(cfg,workspace,make_turn):
     thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
     ledger,turn=make_turn();job=ledger.job_for_turn(turn['id'])
     try:
-        await run_job(replace(cfg,base_url=f'http://127.0.0.1:{server.server_port}/v1'),job['id'])
+        await run_job(replace(cfg,base_url=f'http://127.0.0.1:{server.server_port}/v1',timeout_seconds=20),job['id'])
         result=ledger.collect(turn['token'])
         assert result['state']=='succeeded' and result['text']=='worker finished'
         assert len(requests)==2 and 'tools' in requests[0]

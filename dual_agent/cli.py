@@ -11,6 +11,12 @@ from .config import Config, UserError
 
 def main() -> int:
     os.umask(0o077)
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8")
+    if hasattr(sys.stdin, "reconfigure"):
+        sys.stdin.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(prog="dual-agent")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("hook", help="Read one Codex Hook JSON object from stdin")

@@ -115,8 +115,9 @@ class Server:
 
     @staticmethod
     def write(value: dict) -> None:
-        sys.stdout.write(json.dumps(value, ensure_ascii=False, allow_nan=False) + "\n")
-        sys.stdout.flush()
+        line = (json.dumps(value, ensure_ascii=False, allow_nan=False) + "\n").encode("utf-8")
+        sys.stdout.buffer.write(line)
+        sys.stdout.buffer.flush()
 
     async def respond(self, request: dict) -> None:
         request_id = request["id"]

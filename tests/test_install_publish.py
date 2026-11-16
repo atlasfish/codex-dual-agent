@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import os
 from pathlib import Path
 import shlex
 import subprocess
@@ -25,7 +26,10 @@ def test_build_plugin_uses_absolute_isolated_python(tmp_path):
     for groups in hooks.values():
         for group in groups:
             for hook in group["hooks"]:
-                assert shlex.split(hook["command"]) == [str(interpreter), "-I", "-m", "dual_agent", "hook"]
+                parsed = shlex.split(hook["command"], posix=(os.name != "nt"))
+                if os.name == "nt":
+                    parsed = [p[1:-1] if len(p) >= 2 and p.startswith('"') and p.endswith('"') else p for p in parsed]
+                assert parsed == [str(interpreter), "-I", "-m", "dual_agent", "hook"]
                 assert hook["commandWindows"].startswith("& ")
                 assert hook["commandWindows"].endswith("-I -m dual_agent hook")
     assert not (target / "config.toml").exists()
@@ -70,4 +74,4 @@ def test_script_dry_run_has_no_external_auth_requirement(script, args):
 
 def test_manifest_and_templates_are_valid_json():
     for name in ("plugin.json", "mcp.json", ".mcp.json", ".codex-plugin/plugin.json", ".agents/plugins/marketplace.json", "hooks/hooks.json"):
-        assert isinstance(json.loads((ROOT / name).read_text()), dict)
+        assert isinstance(json.loads((ROOT / name).read_text(encoding="utf-8")), dict)

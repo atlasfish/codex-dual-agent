@@ -15,7 +15,11 @@ from .tools import ToolRuntime
 
 def launch(job_id: str) -> None:
     # Run from our trusted package directory, never from an arbitrary user's repo.
-    kwargs = {"start_new_session": True} if os.name == "posix" else {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+    if os.name == "posix":
+        kwargs = {"start_new_session": True}
+    else:
+        flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        kwargs = {"creationflags": flags}
     subprocess.Popen([sys.executable, *(["-I"] if sys.flags.isolated else []), "-m", "dual_agent", "worker", job_id],
                      cwd=str(Path(__file__).resolve().parent.parent), stdin=subprocess.DEVNULL,
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True, **kwargs)

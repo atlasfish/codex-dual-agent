@@ -10,7 +10,7 @@ from dual_agent.routing import Route
 def workspace(tmp_path):
     path = tmp_path / "workspace"
     path.mkdir()
-    (path / "main.kt").write_text("fun main() = println(1)\n")
+    (path / "main.kt").write_text("fun main() = println(1)\n", encoding="utf-8", newline="\n")
     return path
 
 

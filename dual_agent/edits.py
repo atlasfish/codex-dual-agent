@@ -2,6 +2,7 @@
 from __future__ import annotations
 import difflib
 import json
+import os
 from pathlib import Path
 import tempfile
 from .config import UserError
@@ -72,7 +73,8 @@ def stage_edit(ledger: Ledger, job: dict, text: str) -> dict:
         target = directory / "tree" / file["path"]
         target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         target.write_bytes(file["content"].encode("utf-8"))
-        target.chmod(0o600)
+        if os.name == "posix":
+            target.chmod(0o600)
     patch = "".join(patches)
     (directory / "proposal.patch").write_bytes(patch.encode("utf-8"))
     (directory / "gemini-raw.txt").write_bytes(text.encode("utf-8"))
@@ -81,6 +83,7 @@ def stage_edit(ledger: Ledger, job: dict, text: str) -> dict:
                 "base_hashes": {p: originals[p]["sha256"] for p in sorted(seen)},
                 "main_workspace_modified": False, "staging_directory": str(directory)}
     (directory / "manifest.json").write_text(dumps(metadata) + "\n", encoding="utf-8")
-    for name in ("proposal.patch", "gemini-raw.txt", "manifest.json"):
-        (directory / name).chmod(0o600)
+    if os.name == "posix":
+        for name in ("proposal.patch", "gemini-raw.txt", "manifest.json"):
+            (directory / name).chmod(0o600)
     return metadata

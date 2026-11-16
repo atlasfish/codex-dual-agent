@@ -31,7 +31,7 @@ def test_unsafe_paths(path):
 
 def test_snapshot_immutable(workspace, cfg):
     snap = snapshot(workspace, ("main.kt",), cfg)
-    (workspace / "main.kt").write_text("changed\n")
+    (workspace / "main.kt").write_text("changed\n", encoding="utf-8", newline="\n")
     assert snap["files"][0]["content"] == "fun main() = println(1)\n"
     assert len(snap["snapshot_id"]) == 64
 
@@ -86,10 +86,11 @@ def test_key_file_permissions(tmp_path, cfg, monkeypatch):
     monkeypatch.delenv("DUAL_AGENT_API_KEY", raising=False)
     key = tmp_path / "relay.key"
     key.write_text("not-a-real-key\n")
-    key.chmod(0o644)
-    with pytest.raises(UserError):
-        replace(cfg, api_key_file=str(key)).api_key()
-    key.chmod(0o600)
+    if os.name == "posix":
+        key.chmod(0o644)
+        with pytest.raises(UserError):
+            replace(cfg, api_key_file=str(key)).api_key()
+        key.chmod(0o600)
     assert replace(cfg, api_key_file=str(key)).api_key() == "not-a-real-key"
 
 
@@ -108,11 +109,11 @@ def test_git_evidence_diff_uses_frozen_content(workspace, cfg, monkeypatch):
     subprocess.run(["git", "init", "-q", str(workspace)], check=True)
     subprocess.run(["git", "-C", str(workspace), "add", "main.kt"], check=True)
     subprocess.run(["git", "-C", str(workspace), "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "base"], check=True)
-    (workspace / "main.kt").write_text("frozen content\n")
+    (workspace / "main.kt").write_text("frozen content\n", encoding="utf-8", newline="\n")
     original = context.git
     def mutate_after_freeze(root, *args, **kwargs):
         if args[:2] == ("rev-parse", "--verify"):
-            (workspace / "main.kt").write_text("live mutation\n")
+            (workspace / "main.kt").write_text("live mutation\n", encoding="utf-8", newline="\n")
         return original(root, *args, **kwargs)
     monkeypatch.setattr(context, "git", mutate_after_freeze)
     snap = snapshot(workspace, ("main.kt",), replace(cfg, include_git_diff=True))

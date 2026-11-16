@@ -62,16 +62,22 @@ def build_plugin(source: Path, target: Path, python: Path) -> None:
             shutil.copy2(src, dst)
     for name in ("mcp.json", ".mcp.json"):
         path = target / name
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
         data["mcpServers"]["dual_agent"].update(command=str(python), args=["-I", "-m", "dual_agent", "mcp"])
         atomic_json(path, data)
-    hooks = json.loads((target / "hooks/hooks.json").read_text())
+    hooks = json.loads((target / "hooks/hooks.json").read_text(encoding="utf-8"))
+    cmd_args = [str(python), "-I", "-m", "dual_agent", "hook"]
+    hook_command = subprocess.list2cmdline(cmd_args) if os.name == "nt" else shlex.join(cmd_args)
     for groups in hooks["hooks"].values():
         for group in groups:
             for hook in group["hooks"]:
-                hook["command"] = shlex.join([str(python), "-I", "-m", "dual_agent", "hook"])
+                hook["command"] = hook_command
                 hook["commandWindows"] = "& '" + str(python).replace("'", "''") + "' -I -m dual_agent hook"
     atomic_json(target / "hooks/hooks.json", hooks)
+
+
+def runtime_python_path(runtime: Path) -> Path:
+    return runtime / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
 
 
 def main() -> int:
@@ -84,24 +90,27 @@ def main() -> int:
     runtime = home / ".local/share/codex-dual-agent/runtime"
     plugin = home / ".codex/plugins/codex-dual-agent"
     config = home / ".config/codex-dual-agent/config.toml"
-    python = runtime / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    python = runtime_python_path(runtime)
     if args.dry_run:
         print(json.dumps({"runtime": str(runtime), "plugin": str(plugin), "config": str(config),
                           "marketplace": str(home / ".agents/plugins/marketplace.json"), "network": "pip install dependencies only; no relay call"}, indent=2))
         return 0
-    os.umask(0o077)
+    if os.name == "posix":
+        os.umask(0o077)
     venv.EnvBuilder(with_pip=True).create(runtime)
     subprocess.run([str(python), "-m", "pip", "install", "--disable-pip-version-check", str(ROOT)], check=True)
     build_plugin(ROOT, plugin, python)
     if not config.exists():
         config.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         shutil.copyfile(ROOT / "config.example.toml", config)
-        config.chmod(0o600)
+        if os.name == "posix":
+            config.chmod(0o600)
     marketplace = register_marketplace(home, plugin)
     print(f"Installed runtime: {runtime}\nPreserved/created config: {config}\n")
     print("NOTICE: Gemini tools now execute local shell/scripts and network requests with your user privileges. Advisor is NOT a read-only sandbox.")
     print("Next: set relay model/base_url/allowed_roots and optional key file in that config.")
-    print("Validate: " + shlex.join([str(python), "-I", "-m", "dual_agent", "doctor"]))
+    doctor_cmd = [str(python), "-I", "-m", "dual_agent", "doctor"]
+    print("Validate: " + (subprocess.list2cmdline(doctor_cmd) if os.name == "nt" else shlex.join(doctor_cmd)))
     print(f"Install from your local plugin source in Codex Desktop, or run: codex plugin add codex-dual-agent@{marketplace}")
     print("Restart Codex Desktop and review/trust this plugin's Hooks before testing.")
     print("No main-model provider configuration or other plugin entries were modified.")
