@@ -1,6 +1,6 @@
 {
   "name": "codex-dual-agent",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Codex-native GPT + Gemini session router with a local relay",
   "author": {
     "name": "atlasfish"
@@ -13,7 +13,7 @@
   "interface": {
     "displayName": "Codex Dual Agent",
     "shortDescription": "GPT native edits + independent Gemini opinions",
-    "longDescription": "Prefix routing, frozen evidence, durable context, and one-use isolated edit proposals. Local relay required.",
+    "longDescription": "Trusted local Gemini shell, skills and web tools; soft advisor role, shared context and isolated edit proposals. Not a read-only sandbox.",
     "developerName": "atlasfish",
     "category": "Developer Tools",
     "capabilities": [

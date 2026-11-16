@@ -1,4 +1,4 @@
-"""Bounded, immutable, symlink-resistant project evidence snapshots (POSIX)."""
+"""Optional bounded evidence: POSIX hardened reads, portable best-effort fallback."""
 from __future__ import annotations
 import difflib
 import fnmatch
@@ -37,7 +37,7 @@ def validate_path(name: str, patterns: tuple[str, ...] = ()) -> str:
 def safe_read(root: Path, name: str, max_bytes: int) -> tuple[str, str]:
     validate_path(name)
     if os.name != "posix" or not hasattr(os, "O_NOFOLLOW"):
-        raise UserError("V1 requires POSIX (macOS/Linux/WSL) for safe file snapshots")
+        return portable_read(root, name, max_bytes)
     fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
         parts = name.split("/")
@@ -67,6 +67,30 @@ def safe_read(root: Path, name: str, max_bytes: int) -> tuple[str, str]:
     finally:
         os.close(fd)
 
+
+
+def portable_read(root: Path, name: str, max_bytes: int) -> tuple[str, str]:
+    """Best-effort Windows evidence read, NOT an adversarial race-proof sandbox."""
+    validate_path(name)
+    target = root
+    for component in name.split("/"):
+        target = target / component
+        info = target.lstat()
+        if target.is_symlink() or getattr(info, "st_file_attributes", 0) & 0x400:
+            raise UserError("Snapshot does not follow symlinks/junctions")
+    if not target.resolve().is_relative_to(root.resolve()):
+        raise UserError("Snapshot path escapes workspace")
+    with target.open("rb") as stream:
+        before = os.fstat(stream.fileno())
+        if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or before.st_size > max_bytes:
+            raise UserError("Snapshot requires a bounded regular non-hardlinked file")
+        data = stream.read(max_bytes + 1)
+        after = os.fstat(stream.fileno())
+    if len(data) > max_bytes or (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+        raise UserError("File changed or exceeds snapshot limit")
+    if b"\x00" in data:
+        raise UserError("Binary files are not supported")
+    return data.decode("utf-8"), hashlib.sha256(data).hexdigest()
 
 def git(root: Path, *args: str, max_bytes: int = 1_000_000) -> bytes:
     try:

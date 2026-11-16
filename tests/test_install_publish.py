@@ -26,6 +26,8 @@ def test_build_plugin_uses_absolute_isolated_python(tmp_path):
         for group in groups:
             for hook in group["hooks"]:
                 assert shlex.split(hook["command"]) == [str(interpreter), "-I", "-m", "dual_agent", "hook"]
+                assert hook["commandWindows"].startswith("& ")
+                assert hook["commandWindows"].endswith("-I -m dual_agent hook")
     assert not (target / "config.toml").exists()
 
 

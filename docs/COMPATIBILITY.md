@@ -1,45 +1,41 @@
-# 接口依据与兼容性
+# 接口与兼容性（2026-11-16）
 
-文档核对日期：**2026-11-16**。这是实现依据，不代表所有已发行 Desktop 版本都支持这些接口，也不代表本项目已经通过 Desktop 实机测试。
+## 依据
 
-## 官方资料
+- Hooks / commandWindows: https://learn.chatgpt.com/docs/hooks
+- Function calling: https://developers.openai.com/api/docs/guides/function-calling
+- Skill 包与脚本: https://developers.openai.com/plugins/build/skills
+- MCP stdio: https://modelcontextprotocol.io/specification/2025-06-18/basic/transports
 
-- Codex Hooks：<https://learn.chatgpt.com/docs/hooks>
-- OpenAI 插件构建与清单：<https://developers.openai.com/plugins/build/plugins>
-- Codex MCP：<https://developers.openai.com/codex/mcp>
-- MCP 2025-06-18 stdio transport：<https://modelcontextprotocol.io/specification/2025-06-18/basic/transports>
-- MCP 2025-06-18 lifecycle：<https://modelcontextprotocol.io/specification/2025-06-18/basic/lifecycle>
-- MCP 2025-06-18 tools：<https://modelcontextprotocol.io/specification/2025-06-18/server/tools>
+引用文档不等于你的 Desktop 版本已验收。
 
-## 使用的 Hooks 契约
+## 中转
 
-| 事件 | 使用字段 | 输出/用途 |
-| --- | --- | --- |
-| UserPromptSubmit | hook_event_name, session_id, turn_id, cwd, prompt | hookSpecificOutput.additionalContext 注入路由元数据；错误时 decision=block。 |
-| Stop | 同一身份字段、last_assistant_message、stop_hook_active | 保存原文；最多一次 decision=block 触发补收结果。 |
-| Interrupt | 同一身份字段 | 尽力取消本轮任务；不把部分助手草稿记为最终观点。 |
-| PreToolUse | 同一身份字段、tool_name | Gemini-only 回合拒绝一组已知 shell/edit 工具；不是覆盖所有工具的完整权限系统。 |
+支持 OpenAI-compatible Chat Completions 和 Responses 的文本+function-call循环。
+中转必须透传工具定义、调用、ID 和工具结果。Gemini 原生 generateContent 协议不在
+此适配器范围。保留返回的供应商附加字段（如 thought_signature），Responses 回传
+reasoning items 并请求 encrypted_content。具体中转可能不支持所有字段，需实测。
+不支持流式 token、多模态、自动协议降级或原生供应商 grounding 的隐式假设。
+搜索由本地工具显式完成，不因模型名字包含 Gemini 就宣称自带实时搜索。
 
-缺少关键身份字段不能由项目路径或“最近一次任务”猜测代替。插件不依赖 transcript_path 内部 JSON 格式。Hook 能解析文本并影响行为，不等于能够替换 Desktop 主模型、注入原生 Gemini 气泡、拦截所有 UI 路径或保证主模型逐字照抄。
+## Skill / Shell
 
-`@gemini` 原文在数据库和 MCP 结果中保真；显示层依赖 GPT 转发，并由 Stop 做一次检查与纠正。超过纠正上限只警告，不应声称绝对可保证 UI 原文。
+发现本地 .agents/skills、.codex/skills 与 skill_roots。读取标准 YAML frontmatter
+和 SKILL.md，脚本经本机 Shell 执行。不能凭文档复制宿主连接器、OAuth 或 MCP。
+默认 POSIX /bin/sh 或 Windows PowerShell，可配置 shell_command。
+无 PTY/交互登录输入；必须预配置认证。脚本依赖与网络连通性由实际本机提供。
+Windows 安装路径和 commandWindows 已实现，本次没有 Windows/GUI 实机验证。
 
-## 清单与安装
+## Hooks / MCP
 
-仓库同时提供 portable `plugin.json` / `mcp.json` 和旧式 `.codex-plugin/plugin.json` / `.mcp.json`。Hooks 放在 `hooks/hooks.json`。安装器把用户本机绝对解释器路径写入插件副本，不修改仓库模板，也不依赖 Desktop 的 shell PATH。
+保留 UserPromptSubmit / Stop / Interrupt / PreToolUse。公开路由仍是文本语义，
+不能重写 Desktop 原生模型流或保证两个原生聊天气泡。
+PreToolUse 只限制直接编辑入口，不再 blanket-deny shell。
+MCP 仍为七工具 stdio 子集，支持 2025-06-18 / 2024-11-05，不冒充完整平台。
+安装后须重新检查信任 Hooks；升级不会替你操作 Desktop 设置。
 
-本地 marketplace 配置会保留已有其他条目并备份。仓库自带 `.agents/plugins/marketplace.json` 可供开发参考，但直接通过 Git marketplace 安装模板前仍需要安装 Python 运行时；推荐使用 `scripts/install.py`。
+## 默认搜索
 
-**带 Hooks 的插件属于本地/手动安装路径，不以公开目录可发布为既成事实。** 安装后需要用户检查并信任 Hooks；更新后可能需要重新检查。
-
-## MCP 子集
-
-支持 `2025-06-18` 和 `2024-11-05` 的 tools-only stdio：initialize、notifications/initialized、ping、tools/list、tools/call、notifications/cancelled。只宣告 tools 能力；JSON-RPC 按行，stdout 只输出协议消息。
-
-自实现服务不提供 HTTP/SSE、resources、prompts、sampling、elicitation、OAuth 或工具输出流。测试包含初始化、错误输入、取消等待、并发 ping，以及实际 stdio 子进程调用。尚未使用独立官方 SDK 客户端做互操作测试。
-
-## 中转适配边界
-
-只实现 OpenAI-compatible 的 Chat Completions 或 Responses JSON 文本请求。不是 Gemini 原生 generateContent 接口，不支持供应商专有思考参数、文件上传、多模态、流式 token、实时搜索工具或自动切换 API 协议。
-
-连接错误、429/5xx、不兼容 JSON、截断、工具请求和超时都显式失败，不自动重试、不隐式换模型。部分中转对 `max_tokens`、`store` 或消息角色有额外要求，需要在实际中转环境验收并按需扩展适配层。
+DuckDuckGo HTML 是 best-effort 无 key 适配器，不是官方稳定搜索 API。
+验证码、限流、HTML 变化都会显式失败。可配置 SearXNG JSON 或本机搜索脚本。
+公网搜索及私人 REST/SSH 尚未在用户网络验证。

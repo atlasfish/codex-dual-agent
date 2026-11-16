@@ -10,6 +10,7 @@ from .config import Config, UserError
 from .edits import stage_edit
 from .ledger import Ledger, TERMINAL
 from .provider import Relay
+from .tools import ToolRuntime
 
 
 def launch(job_id: str) -> None:
@@ -25,7 +26,16 @@ async def run_job(cfg: Config, job_id: str, relay: Relay | None = None) -> None:
     if not ledger.claim(job_id):
         return
     job = ledger.job(job_id)
-    task = asyncio.create_task((relay or Relay(cfg)).generate(json.loads(job["payload"])))
+    if relay is None:
+        try:
+            with ledger.db() as db:
+                workspace = db.execute("SELECT s.workspace FROM sessions s JOIN turns t ON t.session_key=s.session_key WHERE t.id=?", (job["turn_id"],)).fetchone()[0]
+            runtime = ToolRuntime(cfg, Path(workspace), audit=lambda *args: ledger.audit_tool(job_id, *args)) if cfg.tools_enabled else None
+            relay = Relay(cfg, runtime=runtime)
+        except Exception:
+            ledger.fail(job_id, "Could not initialize local Agent tools; check workspace/configuration")
+            return
+    task = asyncio.create_task(relay.generate(json.loads(job["payload"])))
     try:
         while True:
             await asyncio.wait({task}, timeout=0.2)

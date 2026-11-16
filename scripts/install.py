@@ -70,6 +70,7 @@ def build_plugin(source: Path, target: Path, python: Path) -> None:
         for group in groups:
             for hook in group["hooks"]:
                 hook["command"] = shlex.join([str(python), "-I", "-m", "dual_agent", "hook"])
+                hook["commandWindows"] = "& '" + str(python).replace("'", "''") + "' -I -m dual_agent hook"
     atomic_json(target / "hooks/hooks.json", hooks)
 
 
@@ -77,13 +78,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
-    if sys.version_info < (3, 11) or os.name != "posix":
-        parser.error("Python 3.11+ on macOS/Linux/WSL is required")
+    if sys.version_info < (3, 11):
+        parser.error("Python 3.11+ is required")
     home = Path.home()
     runtime = home / ".local/share/codex-dual-agent/runtime"
     plugin = home / ".codex/plugins/codex-dual-agent"
     config = home / ".config/codex-dual-agent/config.toml"
-    python = runtime / "bin/python"
+    python = runtime / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
     if args.dry_run:
         print(json.dumps({"runtime": str(runtime), "plugin": str(plugin), "config": str(config),
                           "marketplace": str(home / ".agents/plugins/marketplace.json"), "network": "pip install dependencies only; no relay call"}, indent=2))
@@ -98,6 +99,7 @@ def main() -> int:
         config.chmod(0o600)
     marketplace = register_marketplace(home, plugin)
     print(f"Installed runtime: {runtime}\nPreserved/created config: {config}\n")
+    print("NOTICE: Gemini tools now execute local shell/scripts and network requests with your user privileges. Advisor is NOT a read-only sandbox.")
     print("Next: set relay model/base_url/allowed_roots and optional key file in that config.")
     print("Validate: " + shlex.join([str(python), "-I", "-m", "dual_agent", "doctor"]))
     print(f"Install from your local plugin source in Codex Desktop, or run: codex plugin add codex-dual-agent@{marketplace}")
