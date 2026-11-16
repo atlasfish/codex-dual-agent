@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "dual_agent": {
+      "command": "dual-agent",
+      "args": [
+        "mcp"
+      ]
+    }
+  }
+}

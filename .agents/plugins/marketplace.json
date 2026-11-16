@@ -1,0 +1,20 @@
+{
+  "name": "codex-dual-agent-local",
+  "interface": {
+    "displayName": "Codex Dual Agent \u2014 Local"
+  },
+  "plugins": [
+    {
+      "name": "codex-dual-agent",
+      "source": {
+        "source": "local",
+        "path": "./"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

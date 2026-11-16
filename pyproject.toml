@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "codex-dual-agent"
+version = "0.1.0"
+description = "Codex Desktop native GPT + Gemini second-opinion router"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{name = "atlasfish"}]
+dependencies = ["httpx==0.28.1"]
+
+[project.optional-dependencies]
+test = ["pytest>=8,<10", "pytest-asyncio>=0.24,<2"]
+
+[project.scripts]
+dual-agent = "dual_agent.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["dual_agent*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

@@ -1,0 +1,28 @@
+# Copy to ~/.config/codex-dual-agent/config.toml. This is NOT a Codex config.toml.
+# Never commit your actual configuration, keys, ledger, or generated proposals.
+base_url = "http://127.0.0.1:8045/v1"
+model = "REPLACE_WITH_YOUR_GEMINI_MODEL"
+protocol = "chat_completions" # or "responses"; choose your relay's actual protocol
+api_key_env = "DUAL_AGENT_API_KEY"
+# For GUI-launched Codex, a 0600 key file is often easier than shell environment:
+api_key_file = "" # e.g. "/Users/you/.config/codex-dual-agent/relay.key"
+
+# Explicit opt-in. Example: ["/Users/you/Projects/MyAndroidApp"]
+# An empty list blocks routed prompts and prevents accidental sharing.
+allowed_roots = []
+allow_remote_relay = false # non-loopback relays require this AND HTTPS
+
+state_dir = "~/.local/share/codex-dual-agent/state"
+timeout_seconds = 120
+max_parallel_jobs = 4
+max_output_tokens = 8192
+max_response_bytes = 2000000
+max_files = 24
+max_file_bytes = 64000
+max_total_bytes = 240000
+history_chars = 48000
+
+# Default: send only paths explicitly supplied by --files.
+# Opt in to automatically include safe tracked changed files when --files is absent.
+auto_changed_files = false
+include_git_diff = false

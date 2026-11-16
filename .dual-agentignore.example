@@ -1,0 +1,6 @@
+# This is an exclusion-only fnmatch list, NOT full gitignore syntax.
+# No negation/re-include syntax. Match workspace-relative paths or basenames.
+internal/*
+customer-data/*
+*.csv
+production*.json
