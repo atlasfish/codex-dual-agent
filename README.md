@@ -1,141 +1,125 @@
 # Codex Dual Agent
 
-**保留 Codex Desktop 的 GPT 原生工作流，通过本地中转连接一个独立的 Gemini 第二意见通道。**
+保留 Codex Desktop 的 GPT 原生工作流，让 Gemini 通过本地中转成为**有 Shell、Skill、REST API 和联网搜索能力的独立协作 Agent**。
 
-`@both` 并行讨论 · `@gemini` 连续追问 · `@gpt` 执行与编辑 · 持久化共享历史 · 单次隔离编辑提案。
-
-> **v0.1.0 / 本地可测试实现，不是已经在你的 Desktop 中验证过的正式发布。**
-> 核心、HTTP 协议、真实 Hook/Worker 子进程和 MCP stdio 已有自动化测试；当前没有你的 Codex Desktop 实例或本地中转凭据，尚未完成这两部分的实机验收。具体结果见 [TEST_REPORT.md](TEST_REPORT.md)。
+> **v0.2.0：权限模型发生变化。** Gemini 默认是“建议角色”，不是只读沙盒。它没有直接 `write_file` / `apply_patch` 工具，但可以运行 Shell 和 Skill 脚本，因此具有当前用户可用的文件写入、SSH 和网络能力。安装更新代表启用这个受信任的本地执行器；需关闭全部工具时设置 `tools_enabled = false`。
 >
-> Gemini 发言仍由 Codex 主 Agent 转发，并非两个原生模型气泡。`@gemini:edit` 目前生成隔离目录中的补丁，**不会直接改主工作区**。这两个边界是有意设计，不应宣传为完整 Desktop UI 扩展或 Gemini 原生编辑 Harness。
+> 真实 Desktop、你的中转、私人服务器和公网搜索可用性仍需实机验收。不要把模拟协议测试当成生产兼容性证明。
 
-## 已实现的工作流
+## 交互
 
-| 输入 | 行为 |
+| 前缀 | 行为 |
 | --- | --- |
-| `@gpt <问题>` | GPT 使用 Codex 原生工具，必要时读取 Gemini 历史。 |
-| `@gemini <问题>` | Hook 启动 Gemini 请求；GPT 通过 MCP 获取并原文转发。 |
-| `@both <问题>` | Hook 在返回之前提交独立 Worker；GPT 不等待 Gemini，可并行工作。读取 Gemini 当前答案前必须先保存 GPT 独立意见。 |
-| `@gemini:edit --files src/a.ts -- <修改要求>` | 一次性授权精确文件集合；Gemini 生成替换内容，校验后输出隔离补丁与基线哈希。 |
-| `@compare` | 读取双方历史原文，交给 GPT 对比；不会额外请求 Gemini。 |
-| 无前缀 | 默认 GPT；首次显式使用上述前缀前，不记录普通会话。 |
+| `@gpt` | GPT 原生执行、编辑，按需引用 Gemini 历史。 |
+| `@gemini` | Gemini 独立使用工具并回答，GPT 原文转发。 |
+| `@both` | 双路并发；GPT 保存独立意见后读取 Gemini 答案，再单独比较。 |
+| `@gemini:edit --files src/a.ts -- ...` | 保留原有单次隔离补丁提案流程，不自动应用主工作区。 |
+| `@compare` | 比较双方历史回答，不新增 Gemini 请求。 |
 
-前缀是本项目解析的**文字语法**，不是 Codex 内置命令。`--files ... --` 支持带空格路径的引号；路径相对当前工作区。默认没有 `--files` 就不会发送项目文件，也不会悄悄上传整个仓库。
+前缀是本项目的文字协议，不是 Desktop 原生模型切换 UI。没有两个独立原生聊天气泡。
 
 ```text
-@both --files app/src/main/java/demo/MainViewModel.kt -- 独立评估状态管理方案，先不要修改代码。
-@gemini 继续解释你的第二个建议，给一个更容易理解的例子。
-@gpt 读取 Gemini 上一条完整意见，核对其假设后再决定是否采纳。
-@gemini:edit --files src/router.ts -- 在不改变外部接口的前提下拆分状态机。
-@gpt 审查刚才的隔离补丁；确认基线没有变化后，再按原生审批流程应用并测试。
-@compare
+@gemini 读取我的 server-status Skill，执行其中的健康检查脚本，分析结果，不修改服务。
+@gemini 检查当前模块的实现，需要哪些文件你自己查。
+@both 调研这个依赖的最新文档，结合项目现状给出独立建议，暂不改代码。
+@gpt 读取 Gemini 上一条意见，核实后按第二个方案实施。
 ```
 
-## 环境要求
+默认无需手工列出 `--files`：Gemini 可以自主读文件或用 Shell 搜索代码。显式 `--files` 仍用于固定证据或补丁基线。动态工具读取的是当前文件，不保证与 GPT 看到的版本完全相同。
 
-Python **3.11+**；macOS、Linux 或 WSL；安装依赖时可访问 Python 包源。运行时仅依赖 `httpx==0.28.1`，SQLite 使用标准库。Git 用于可选的版本上下文和补丁测试。
+## Gemini 工具
 
-**原生 Windows 不在 V1 支持范围内**：安全快照依赖 POSIX `openat`/`O_NOFOLLOW`。在 WSL 内运行的程序无法直接把 Windows 原生 Desktop 的进程环境变成 WSL；这类组合需要额外配置并单独验证。
+- `shell`：运行本地命令、SSH、curl、项目检查和 Skill 脚本；继承运行进程的环境与本机认证能力。
+- `read_file`、`list_skills`、`read_skill`：按需读文件，发现并加载本地 Skill。
+- `http_request`、`web_search`：访问 HTTP(S)、本机/内网 REST API 和实时搜索。
 
-Codex 需要支持本地插件、MCP 和本文使用的 Hooks 事件。不要为了这个插件替换你现有的 GPT Provider 设置。
+默认建议角色允许临时文件、缓存与脚本正常产物；不主动编辑项目源码、部署、提交、删除或修改远程服务。任务确实授权的操作可以执行。这是**提示词约定**，没有命令黑名单或“绝对只读”保证。直接编辑入口被移除并不阻止 Shell 写文件。
 
-## 安装到本机
+`allowed_roots` 仅控制哪些项目可启动路由，不约束 Shell 的全部文件访问。`network_enabled=false` 只移除内建联网工具，不会阻止仍启用的 Shell 联网。
 
-解压源码并进入目录，先看将修改哪些路径：
+## 安装与升级
+
+Python 3.11+；依赖 `httpx` 和 `PyYAML`。从仓库获取本版本后执行：
 
 ```bash
-python3 scripts/install.py --dry-run
-python3 scripts/install.py
+python scripts/install.py --dry-run
+python scripts/install.py
 ```
 
-安装脚本会创建私有 Python 虚拟环境、安装运行时，生成带**绝对解释器路径与 `-I` 隔离选项**的插件副本，并向本地个人 marketplace 添加一条记录；已有其他条目与用户配置保留。修改 marketplace 前会保存备份。不会自动替你信任 Hooks，也不会修改 `~/.codex/config.toml` 的主模型。
+安装器保留用户配置与其他 marketplace 条目，更新私有运行时和插件副本。重新启动 Desktop 并重新检查/信任 Hooks。不会替换你的 GPT Provider。
 
-| 本地路径 | 内容 |
-| --- | --- |
-| `~/.local/share/codex-dual-agent/runtime` | Python 运行时及依赖 |
-| `~/.codex/plugins/codex-dual-agent` | 安装后的插件副本 |
-| `~/.config/codex-dual-agent/config.toml` | 你的插件配置，不是 Codex 主配置 |
-| `~/.agents/plugins/marketplace.json` | 个人本地插件目录 |
-| `~/.local/share/codex-dual-agent/state` | 会话库与隔离提案，含项目资料，不应上传 |
+macOS/Linux/WSL 默认 `/bin/sh -c`。原生 Windows 已加入 `Scripts/python.exe`、PowerShell Hook override 与可移植快照路径；**本次本地验证环境是 Linux，Windows Desktop 的实际兼容性仍待验证**。
 
-修改插件自己的 `config.toml`，最少填写：
+配置位置：`~/.config/codex-dual-agent/config.toml`，不是 Codex 自己的配置。最少配置：
 
 ```toml
-base_url = "http://127.0.0.1:8045/v1"
-model = "你的中转实际提供的Gemini模型ID"
-protocol = "chat_completions" # 或 responses，按中转实际协议选择
-allowed_roots = ["/Users/you/Projects/MyAndroidApp"]
+base_url = "http://127.0.0.1:8317/v1"
+model = "你的实际Gemini模型ID"
+protocol = "chat_completions" # 或 responses
+allowed_roots = ["C:/Users/you/Projects/MyApp"] # 替换为你的实际目录
+
+tools_enabled = true
+shell_enabled = true
+skills_enabled = true
+network_enabled = true
+timeout_seconds = 300
+skill_roots = []
 ```
 
-`allowed_roots=[]` 会拒绝路由请求；不要图方便把整个用户目录加入列表。`base_url` 应为 API 根路径，程序自行追加 `chat/completions` 或 `responses`。
+两个协议都需要中转正确透传 **function/tool calls**，而不只是纯文本聊天。Chat Completions 保留 tool_call_id 和供应商附加字段；Responses 回传 function_call_output 及 reasoning items。不支持工具的中转会显式报错；不会偷偷降级为“假执行”。
 
-需要密钥时，可使用继承的 `DUAL_AGENT_API_KEY` 环境变量。GUI 启动的 Desktop 不一定继承终端环境，更推荐把密钥存入项目目录之外、属于自己的 `0600` 文件，并在配置中设置 `api_key_file` 的绝对路径。**不要把密钥放进聊天、仓库、插件清单或本文件。** 无鉴权的本地中转可留空。
+密钥仍从 `DUAL_AGENT_API_KEY` 或 `api_key_file` 读取。GUI 进程不一定继承终端环境；SSH、REST 和脚本所需凭据必须在实际 Worker 进程环境中可用。无需把凭据贴入对话。HTTP headers 支持 `Bearer ${SERVER_TOKEN}` 一类本地环境变量展开。
 
-```bash
-~/.local/share/codex-dual-agent/runtime/bin/python -I -m dual_agent doctor
+## Skill 发现与脚本
+
+自动扫描工作区和用户目录中的 `.agents/skills`、`.codex/skills`。通过 `skill_roots` 添加其他安装目录（包括具体插件的 skills 目录）。先给 Gemini 名称/描述索引，需要时读完整 SKILL.md，再按其中说明运行脚本。
+
+```toml
+skill_roots = ["C:/Users/you/my-skills", "C:/Users/you/.codex/plugins/my-plugin/skills"]
+# 可选覆盖默认 shell：
+# shell_command = ["pwsh", "-NoProfile", "-NonInteractive", "-Command"]
 ```
 
-`doctor` 只验证配置和本地依赖，不发模型请求；`ready=true` 不代表中转或 Desktop 已实测成功。
+Skill 是指令和资源，不是自动复制宿主权限。依赖 Codex 专属 MCP、连接器 OAuth、浏览器会话或系统内置工具的 Skill **不能仅凭文件自动继承这些能力**；应改用本机已有 CLI/脚本/REST，或另外接入对应工具。Shell 非交互式，不提供终端登录对话；先在本机配置认证。
 
-随后在 Codex Desktop 的本地插件来源中安装启用该插件，或使用安装脚本输出的命令（marketplace 名称以脚本输出为准）：
+## 默认联网与搜索
 
-```bash
-codex plugin add codex-dual-agent@dual-agent-personal
+联网工具默认启用。默认搜索使用无需 API key 的 DuckDuckGo HTML 适配器，**可能被限流、验证码或页面变化阻断**；失败会返回错误，模型不得伪造搜索结果。未在你的网络实测。
+
+可改用自己的 SearXNG：
+
+```toml
+search_backend = "searxng"
+search_url = "http://127.0.0.1:8080/search"
 ```
 
-重新启动 Desktop，在 Hooks 设置中检查并信任这些脚本。以 `@gemini 请用一句话介绍自己的任务` 开始，再按照 [实机验收清单](docs/SMOKE_TEST.md) 测试。若 `@` 被界面提及菜单消费，先确认最终提交文本确实包含字面前缀；本插件不能修改 Desktop 输入框。
+或者复用自己的搜索脚本/Skill：
 
-## 上下文、并发与权限
+```toml
+search_backend = "command"
+search_command = ["python", "C:/Users/you/skills/search/scripts/search.py", "{query}"]
+```
 
-每轮以 **Codex session_id + 规范化工作区路径** 隔离，另有不可预测的 `turn_token`。SQLite 保存原始发言、任务状态、上下文快照和补丁授权。后续 `@gpt` 可用 `fetch_peer_opinion` 找到 Gemini 指定轮次的原文；重启后仍可恢复已经保存的内容。
+脚本输出 JSON：`{"results":[{"title":"标题","url":"https://...","snippet":"摘要"}]}`。参数通过 argv 传递，不把查询拼入 Shell。也可让 Gemini 直接读搜索 Skill 并运行其中脚本。
 
-这并非共享两个模型的全部隐藏状态。Gemini 收到的是本插件从激活之后保存的可观察发言，以及显式选择的文件。不会解析 Codex 内部 transcript，不会导出隐藏推理，也没有自动导入插件启用前的会话。超出上下文预算时发送最近的消息后缀；数据库保留原文，V1 **没有自动长期摘要**。
+## 并发、数据与存储
 
-`@both` 的 Gemini 输入在提交时冻结，不包含 GPT 同轮新产生的结论。GPT 在读取 Gemini 结果前先提交不可改写的独立意见。原生 GPT 可能仍看到自己的既有上下文与额外工具证据，因此这是**共享证据快照上的独立协作**，不是两边完整上下文完全一致。
+保留按会话/工作区隔离的 SQLite 历史、原文转发、先记录 GPT 独立意见再看 Gemini 的顺序约束。开放 Shell 后，模型理论上能绕过应用接口读取本机状态；独立性也不再是针对恶意同用户进程的硬保证。
 
-Gemini HTTP 请求不包含工具声明；Gemini 不能直接访问文件、终端或网络搜索。主进程只发送受限快照。敏感路径、越界路径、符号链接、硬链接、非文本和超大文件会被拒绝。可在工作区添加 `.dual-agentignore` 排除模式；它是简单 `fnmatch` 排除规则，不是完整 Git ignore 语法。
+工具中间结果仅用于当前 Worker 的模型循环，**不作为完整日志写入 SQLite**。持久化审计只记录工具名、参数哈希、状态、时间和输出字节数，不保存原始命令、鉴权头或网页正文。成功任务清除重复的 `jobs.payload`。`@gpt` / `@compare` 不再自动抓取改动文件。
 
-编辑权限仅由显式 `@gemini:edit --files ... --` 创建，绑定任务、快照、目标路径、期限和单次使用。生成物保存在 `state/artifacts/`，包括 `tree/`、`proposal.patch`、`manifest.json` 和原始 Gemini 输出。只支持已选中文本文件的替换，不支持新增、删除或重命名。**隔离目录不是 Git worktree**。应用到主工作区必须是后续明确的 GPT 任务，先核对基线哈希，再执行正常审查、审批和测试。
+对话原文、显式快照、补丁产物仍会增长。**本版本没有完成全局容量配额、历史快照去重或自动 GC**；不能声称已经彻底解决数据库增长。工具看到的内容会发送至你的中转/模型供应商；环境变量与密钥不会自动整体打包，但脚本自行输出秘密仍有泄露风险。
 
-取消会尽力关闭 HTTP 请求并拒收迟到结果，但无法保证远端供应商取消计费。超时或进程崩溃后不会自动重试模型请求，以免重复扣费；需要用户重新发起一轮。
+取消会尽力结束本地命令/请求；已发生的远程变更不能回滚，供应商计费也不能保证停止。失败不会自动重复执行命令或 API。
 
-## MCP 工具
-
-`get_context`、`get_job`、`await_result`、`record_gpt_opinion`、`fetch_peer_opinion`、`compare_opinions`、`cancel_job`。
-
-MCP 不能创建额外 Gemini 请求、改变中转地址、授予写权限或写主工作区。`await_result` 每次等待不超过 25 秒；任务可在其总期限内继续等待。MCP 消费端取消一次等待，不等于取消持久化任务。
-
-当前为一个小型、经过协议测试的 **tools-only stdio JSON-RPC 实现**，不是 FastMCP，也不是完整 MCP 平台。支持版本协商、初始化、工具调用、ping 和取消通知；不提供 HTTP/SSE、资源、采样或恢复流式输出。
-
-## 开发与测试
+## 开发
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
 python -m pip install -e '.[test]'
 python -m pytest -q
 python -m compileall -q dual_agent scripts
 ```
 
-测试不需要真实模型密钥；使用 MockTransport 或仅监听本机的测试 HTTP 服务。真实子进程集成覆盖 Hook → detached Worker → SQLite → MCP，以及并发、取消与重试幂等性。GitHub Actions 配置已提供，但“配置存在”不等于已经在你的账号执行通过。
+测试使用临时目录、模拟或本机 HTTP，不连接真实模型和私人服务器。说明见 [TEST_REPORT.md](TEST_REPORT.md)、[安全边界](SECURITY.md)、[实机验收](docs/SMOKE_TEST.md)。
 
-## 获取源码与发布
-
-项目仓库：`atlasfish/codex-dual-agent`。仓库已由作者创建；日常安装请克隆源码，再执行上面的安装步骤：
-
-```bash
-git clone https://github.com/atlasfish/codex-dual-agent.git
-cd codex-dual-agent
-python3 scripts/install.py --dry-run
-python3 scripts/install.py
-```
-
-`scripts/publish.py` 保留用于向**另一个尚不存在的新私有仓库**发布副本，不用于更新当前已有仓库。它使用本机 GitHub CLI 登录状态，核对账号、运行测试后再建库和 push；遇到同名远程仓库、已有本地 remote 或非预期目录会停止，不覆盖、不强推。源码不包含 GitHub 凭据。
-
-更新当前仓库请使用常规 Git 分支、提交和推送流程。GitHub Actions 的实际结果以仓库 Actions 页面为准，不以本地测试报告代替。
-
-## 文档
-
-[架构与状态机](docs/ARCHITECTURE.md) · [官方接口与兼容边界](docs/COMPATIBILITY.md) · [Desktop 实机验收](docs/SMOKE_TEST.md) · [安全边界](SECURITY.md) · [测试报告](TEST_REPORT.md)
-
-本项目是独立社区代码，不代表 OpenAI 或 Google 官方支持。MIT License。
+仓库：`atlasfish/codex-dual-agent`。`scripts/publish.py` 仅用于创建另一个新私有仓库，不用于更新本仓库。MIT License；独立社区项目。

@@ -81,6 +81,7 @@ def test_config_fail_closed(cfg, workspace):
     cfg.validate()
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX mode bits only")
 def test_key_file_permissions(tmp_path, cfg, monkeypatch):
     monkeypatch.delenv("DUAL_AGENT_API_KEY", raising=False)
     key = tmp_path / "relay.key"

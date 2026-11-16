@@ -22,7 +22,7 @@ class Config:
     protocol: str = "chat_completions"
     api_key_env: str = "DUAL_AGENT_API_KEY"
     api_key_file: str = ""
-    timeout_seconds: float = 120.0
+    timeout_seconds: float = 300.0
     max_output_tokens: int = 8192
     max_response_bytes: int = 2_000_000
     max_parallel_jobs: int = 4
@@ -34,6 +34,22 @@ class Config:
     include_git_diff: bool = False
     allowed_roots: tuple[str, ...] = ()
     allow_remote_relay: bool = False
+
+    # Trusted local Agent mode. These switches remove tools, NOT OS capabilities.
+    tools_enabled: bool = True
+    shell_enabled: bool = True
+    network_enabled: bool = True
+    skills_enabled: bool = True
+    skill_roots: tuple[str, ...] = ()
+    shell_command: tuple[str, ...] = ()  # Auto: /bin/sh -c or PowerShell -Command
+    shell_timeout_seconds: float = 60.0
+    max_tool_rounds: int = 12
+    max_tool_calls: int = 32
+    max_tool_output_bytes: int = 64_000
+    max_agent_context_bytes: int = 1_000_000
+    search_backend: str = "duckduckgo"  # best-effort HTML, searxng, or command
+    search_url: str = ""
+    search_command: tuple[str, ...] = ()  # argv; {query} replaced without a shell
 
     @classmethod
     def load(cls) -> "Config":
@@ -51,12 +67,17 @@ class Config:
             data["state_dir"] = Path(data["state_dir"]).expanduser().resolve()
         if "allowed_roots" in data:
             data["allowed_roots"] = tuple(data["allowed_roots"])
+        for key in ("skill_roots", "shell_command", "search_command"):
+            if key in data:
+                if not isinstance(data[key], list) or not all(isinstance(v, str) and v for v in data[key]):
+                    raise UserError(f"{key} must be an array of nonempty strings")
+                data[key] = tuple(data[key])
         cfg = cls(**data)
         cfg.validate()
         return cfg
 
     def validate(self) -> None:
-        for name in ("base_url", "model", "protocol", "api_key_env", "api_key_file"):
+        for name in ("base_url", "model", "protocol", "api_key_env", "api_key_file", "search_backend", "search_url"):
             if not isinstance(getattr(self, name), str):
                 raise UserError(f"{name} must be a string")
         if not isinstance(self.allowed_roots, (tuple, list)):
@@ -81,17 +102,33 @@ class Config:
             ("max_response_bytes", 1024, 8_000_000), ("max_parallel_jobs", 1, 16),
             ("max_files", 1, 128), ("max_file_bytes", 1, 1_000_000),
             ("max_total_bytes", 1, 4_000_000), ("history_chars", 1, 400_000),
+            ("shell_timeout_seconds", 1, 600), ("max_tool_rounds", 1, 64),
+            ("max_tool_calls", 1, 256), ("max_tool_output_bytes", 1024, 1_000_000),
+            ("max_agent_context_bytes", 4096, 8_000_000),
         ):
             value = getattr(self, name)
-            if name != "timeout_seconds" and (not isinstance(value, int) or isinstance(value, bool)):
+            if name not in {"timeout_seconds", "shell_timeout_seconds"} and (not isinstance(value, int) or isinstance(value, bool)):
                 raise UserError(f"{name} must be an integer")
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not low <= value <= high:
                 raise UserError(f"Invalid {name}; expected {low}..{high}")
-        for name in ("auto_changed_files", "include_git_diff", "allow_remote_relay"):
+        for name in ("auto_changed_files", "include_git_diff", "allow_remote_relay", "tools_enabled", "shell_enabled", "network_enabled", "skills_enabled"):
             if not isinstance(getattr(self, name), bool):
                 raise UserError(f"{name} must be a boolean")
         if not all(isinstance(root, str) and root for root in self.allowed_roots):
             raise UserError("allowed_roots must contain filesystem paths")
+
+        for key in ("skill_roots", "shell_command", "search_command"):
+            value = getattr(self, key)
+            if not isinstance(value, (list, tuple)) or not all(isinstance(v, str) and v for v in value):
+                raise UserError(f"{key} must be an array of nonempty strings")
+        if self.search_backend not in {"duckduckgo", "searxng", "command"}:
+            raise UserError("search_backend must be duckduckgo, searxng, or command")
+        if self.search_backend == "searxng":
+            url = urlparse(self.search_url)
+            if url.scheme not in {"http", "https"} or not url.hostname or url.username or url.password:
+                raise UserError("SearXNG search_url must be an HTTP(S) URL without credentials")
+        if self.search_backend == "command" and not self.search_command:
+            raise UserError("command search requires search_command argv")
 
     def check_workspace(self, workspace: Path) -> Path:
         root = workspace.expanduser().resolve(strict=True)

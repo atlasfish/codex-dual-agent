@@ -13,7 +13,7 @@ allowed_roots = []
 allow_remote_relay = false # non-loopback relays require this AND HTTPS
 
 state_dir = "~/.local/share/codex-dual-agent/state"
-timeout_seconds = 120
+timeout_seconds = 300
 max_parallel_jobs = 4
 max_output_tokens = 8192
 max_response_bytes = 2000000
@@ -26,3 +26,28 @@ history_chars = 48000
 # Opt in to automatically include safe tracked changed files when --files is absent.
 auto_changed_files = false
 include_git_diff = false
+
+# v0.2: trusted local Agent. These are NOT sandbox/firewall controls.
+# Shell inherits your user environment, SSH agent and reachable services.
+# Advisor role discourages source edits, but shell/scripts CAN write files.
+tools_enabled = true
+shell_enabled = true
+skills_enabled = true
+network_enabled = true
+# Auto-discover workspace and user .agents/skills and .codex/skills.
+# Add installed plugin skill directories here when needed.
+skill_roots = []
+# Default: POSIX /bin/sh -c; Windows PowerShell -NoProfile -NonInteractive -Command.
+shell_command = []
+shell_timeout_seconds = 60
+max_tool_rounds = 12
+max_tool_calls = 32
+max_tool_output_bytes = 64000
+max_agent_context_bytes = 1000000
+# Default search is a best-effort public HTML adapter; may hit CAPTCHA/rate limits.
+# Alternatives: searxng (set search_url), command (set search_command).
+search_backend = "duckduckgo"
+search_url = ""
+# Example: ["python", "/absolute/path/search.py", "{query}"]
+# Script must output JSON: {"results":[{"title":"...","url":"https://...","snippet":"..."}]}
+search_command = []

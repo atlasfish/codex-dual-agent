@@ -6,7 +6,7 @@
 
 运行安装器，填真实 Gemini model ID、API 根地址、allowed_roots 和可选 keyfile。运行 doctor，确保 ready=true。安装/启用本地插件，审阅并信任 Hooks，重启 Desktop。确认 MCP 工具列表含双模型工具。
 
-提交 `@gemini 请只回复一句简短的测试问候`。中转应只有一次 Gemini 请求；Desktop 显示 Gemini 标题和回复。检查中转所收 payload 不含鉴权密钥、整个仓库或 Codex 内部推理。
+提交 `@gemini 请只回复一句简短的测试问候`。无需工具的问候通常只有一次 Gemini 请求；使用工具时允许同一任务内的多次 API 往返。Desktop 显示 Gemini 标题和回复。检查中转所收 payload 不含鉴权密钥、整个仓库或 Codex 内部推理。
 
 ## 2. 双路并发与独立性
 
@@ -18,9 +18,9 @@
 
 连续两次 @gemini 追问，确认第二次请求含之前 Gemini 的原始回答。然后 @gpt 指定引用上一条 Gemini，确认来源消息准确。关闭/重启 Desktop，在同一原生会话中继续验证。另开同工作区新会话，不应自动看到另一会话的历史。
 
-## 4. 只读与编辑提案
+## 4. 建议角色与编辑提案
 
-在 @gemini 里要求直接执行 shell 或改文件，Gemini 不应获得执行工具，主工作区哈希不变。随后提交 `@gemini:edit --files sample.txt -- 重新组织句子`：应生成 staging 目录、proposal.patch、manifest.json，主文件仍不变。
+在 @gemini 里要求通过 Shell 查看文件并明确暂不修改源码，确认工具确实执行，模型遵守建议角色；临时文件和脚本缓存不作为失败。直接编辑函数不应出现在 Gemini 工具列表，但这不代表 Shell 没有写能力。随后提交 `@gemini:edit --files sample.txt -- 重新组织句子`：应生成 staging 目录、proposal.patch、manifest.json，主文件仍不变。
 
 在生成提案后手动修改 sample.txt，再让 @gpt 审查应用：应发现 base_hashes 不匹配并停止强行套用。重新生成或手工解决；不要以 --force 绕过。
 
@@ -29,3 +29,19 @@
 在延迟请求时按停止；任务应取消，迟到结果不能替换终态。用错误 model ID、短超时、过期密钥分别验证失败提示。不应悄悄把 GPT 的回答当成 Gemini 回答，也不应重复请求计费。
 
 若 Stop 请求继续执行，确认最多一次兜底，内部续跑不会新增 Gemini 请求；若 Desktop 字段与当前契约不符，保存脱敏 Hook 字段与版本后排查，不能伪装已实现双路。
+
+## 6. v0.2 必测：trusted Agent
+
+先用专门的测试目录与测试服务，不操作生产变更：
+
+1. `@gemini 通过 Shell 输出当前目录，并读取一个源码文件。不要修改代码。`
+2. `@gemini 列出可用 Skill，读取 server-status 的说明，执行其中健康检查脚本。`
+3. 验证脚本从本机环境使用凭据，但回答/数据库中没有密钥。
+4. `@gemini 搜索某依赖最新发布说明，给出实际来源链接。`
+   验证搜索真实成功；若限流，配置自己的 search_command/SearXNG 再试。
+5. 查询测试 REST API；对需要 POST 的只读查询，确认不被简单方法黑名单阻止。
+6. 检查长命令取消、超时和大输出截断。远程已发生动作不可回滚。
+7. @both 同时运行，确认 GPT 仍先提交独立意见，再获取 Gemini 结果。
+8. 检查 Windows commandWindows、环境继承、脚本 cwd 与实际中转工具字段兼容。
+
+Advisor 不承诺文件系统不变；脚本缓存是允许的。不要继续按“Gemini绝无写能力”验收。

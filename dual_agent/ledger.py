@@ -43,6 +43,12 @@ CREATE TABLE IF NOT EXISTS grants (
  job_id TEXT PRIMARY KEY, paths TEXT NOT NULL, snapshot_id TEXT NOT NULL,
  expires REAL NOT NULL, used INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS tool_events (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, job_id TEXT NOT NULL, name TEXT NOT NULL,
+ arguments_sha256 TEXT NOT NULL, duration REAL NOT NULL, status TEXT NOT NULL,
+ output_bytes INTEGER NOT NULL, created REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS tool_events_job ON tool_events(job_id,id);
 PRAGMA user_version = 1;
 """
 
@@ -213,6 +219,16 @@ class Ledger:
             raise UserError("Unknown job")
         return self.job_for_turn(row["turn_id"])  # type: ignore[return-value]
 
+    def audit_tool(self, job_id: str, name: str, args_sha: str, duration: float, status: str, size: int) -> None:
+        # Never persist command text, headers, web bodies or full tool outputs.
+        with self.db(True) as db:
+            db.execute("INSERT INTO tool_events(job_id,name,arguments_sha256,duration,status,output_bytes,created) VALUES(?,?,?,?,?,?,?)",
+                       (job_id, name, args_sha, duration, status, size, time.time()))
+
+    def tool_usage(self, job_id: str) -> list[dict]:
+        with self.db() as db:
+            return [dict(r) for r in db.execute("SELECT name,status,duration,output_bytes FROM tool_events WHERE job_id=? ORDER BY id", (job_id,))]
+
     def claim(self, job_id: str) -> bool:
         with self.db(True) as db:
             return db.execute("UPDATE jobs SET state='running',started=? WHERE id=? AND state='queued' AND deadline>?", (time.time(), job_id, time.time())).rowcount == 1
@@ -234,6 +250,7 @@ class Ledger:
                 return False
             db.execute("UPDATE jobs SET state='succeeded',result=?,artifact=?,finished=? WHERE id=?", (text, dumps(artifact) if artifact else None, time.time(), job_id))
             self._message(db, row["session_key"], row["turn_id"], "gemini", "opinion", text)
+            db.execute("UPDATE jobs SET payload='{}' WHERE id=?", (job_id,))
             return True
 
     def fail(self, job_id: str, safe_error: str) -> None:
@@ -253,6 +270,7 @@ class Ledger:
         if job["state"] == "succeeded" and turn["mode"] == "both" and not self.gpt_recorded(turn["id"]):
             raise UserError("Record the independent GPT opinion before reading this round's Gemini result")
         result = {k: job[k] for k in ("id", "state", "created", "started", "finished", "error")}
+        result["tool_usage"] = self.tool_usage(job["id"])
         if job["state"] in TERMINAL:
             with self.db(True) as db:
                 db.execute("UPDATE jobs SET seen=1 WHERE id=?", (job["id"],))

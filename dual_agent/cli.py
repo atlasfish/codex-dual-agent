@@ -54,6 +54,9 @@ def main() -> int:
             print(json.dumps({"config_valid": True, "ready": ready, "state_dir": str(ledger.root),
                   "allowed_roots_configured": bool(cfg.allowed_roots), "relay_model_configured": cfg.model != "REPLACE_WITH_YOUR_GEMINI_MODEL",
                   "credential_configured": has_key, "httpx_installed": importlib.util.find_spec("httpx") is not None,
+                  "tools_enabled": cfg.tools_enabled, "trust_model": "advisor-not-sandbox",
+                  "shell_enabled": cfg.shell_enabled, "network_enabled": cfg.network_enabled,
+                  "skills_enabled": cfg.skills_enabled, "search_backend": cfg.search_backend,
                   "network_tested": False, "desktop_tested": False}, indent=2))
             return 0 if ready else 1
         return 0
